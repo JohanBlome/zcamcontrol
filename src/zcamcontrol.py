@@ -36,11 +36,16 @@ def is_file(filename):
 
 def run_query(path, action="", debug=0):
     global IP
+    # no '/' in the beginning
+    if path[0] == "/":
+        path = path[1:]
     try:
         query = f"http://{IP}/{path}{action}"
         if debug > 0:
             print(f"run {query}")
         resp = requests.get(query)
+        if debug > 0:
+            print(f"response {resp}")
         if resp.status_code == 200:
             return resp
         else:
@@ -57,10 +62,10 @@ def run_query(path, action="", debug=0):
     raise Exception("Error in run_query")
 
 
-def list_path(path, files, folders):
+def list_path(path, files, folders, debug=0):
     if path[-1] != "/":
         path = f"{path}/"
-    _folders = run_query(path).json()
+    _folders = run_query(path, debug=debug).json()
     for file in _folders["files"]:
         # check ending (can we do better?)
         long = f"{path}{file}"
@@ -68,24 +73,24 @@ def list_path(path, files, folders):
             files.append(long)
         else:
             folders.append(long)
-            list_path(long, files, folders)
+            list_path(long, files, folders, debug=debug)
 
     return
 
 
-def list_videos(folder):
+def list_videos(folder, debug=0):
     _folder = "DCIM"
     if folder is not None:
         _folder = f"{_folder}/{folder}"
     # TODO filter stray '/'
     files = []
     folders = []
-    list_path(_folder, files, folders)
+    list_path(_folder, files, folders, debug=debug)
     for file in files:
         print(file)
 
 
-def delete_video(filename):
+def delete_video(filename, debug=0):
     # either filename or all
     # match wildcard '*'
     if filename[-1] == "*":
@@ -94,16 +99,17 @@ def delete_video(filename):
         list_path("DCIM", files, folders)
         for file in files:
             if file.startswith(filename[:-1]):
+                # good to know what you just destroyed :)
                 print(f"delete {file}")
-                delete_video(file)
+                delete_video(file, debug=debug)
     else:
-        run_query(filename, "?act=rm")
+        run_query(filename, "?act=rm", debug=debug)
 
 
-def download_video(source, destination):
+def download_video(source, destination, debug=0):
     if destination == ".":
         destination = os.path.basename(source)
-    file = run_query(source)
+    file = run_query(source, debug=debug)
     if file is None:
         print(f"{source} not found")
         return
@@ -112,30 +118,33 @@ def download_video(source, destination):
         f.write(file.content)
 
 
-def start():
-    run_query("ctrl/rec", "?action=start", debug=1)
+def start(debug=0):
+    # first make sure we are in rec mode.
+    run_query("ctrl/mode", "?action=to_rec", debug=debug)
+    run_query("ctrl/rec", "?action=start", debug=debug)
     return
 
 
-def stop():
-    run_query("ctrl/rec", "?action=stop", debug=1)
+def stop(debug=0):
+    run_query("ctrl/rec", "?action=stop", debug=debug)
     return
 
 
-def query(key):
-    data = run_query("ctrl/get", f"?k={key}", debug=1).json()
+def query(key, debug=0):
+    data = run_query("ctrl/get", f"?k={key}", debug=debug).json()
     print(f"{data['value']}")
     return
 
 
-def set_date(date):
+def set_date(date, debug=0):
     set_date = ""
     if date is not None and len(date) > 0:
         # YYYY-MM-DD:hh:mm:ss
         set_date = f"{date[0:10]}&time={date[11:19]}"
     else:
         now = datetime.datetime.now()
-        print(f"set date to {now}")
+        if debug > 0:
+            print(f"set date to {now}")
         year = now.year
         month = now.month
         hour = now.hour
@@ -143,7 +152,7 @@ def set_date(date):
         seconds = now.second
         set_date = f"{year}-{month}-{now.day}&time={hour}:{minutes}:{seconds}"
 
-    run_query("datetime", f"?date={set_date}", debug=1)
+    run_query("datetime", f"?date={set_date}", debug=debug)
 
 
 def get_options(argv):
@@ -171,18 +180,6 @@ def get_options(argv):
         dest="debug",
         default=default_values["debug"],
         help="Increase verbosity (use multiple times for more)",
-    )
-    parser.add_argument(
-        "-f",
-        "--filename",
-        type=str,
-        help="filename",
-    )
-    parser.add_argument(
-        "-o",
-        "--output",
-        type=str,
-        help="output filename",
     )
 
     # do the parsing
@@ -225,12 +222,12 @@ def main(argv):
             folder = ""
             if len(options.func) > 1:
                 folder = options.func[1]
-            list_videos(folder)
+            list_videos(folder, options.debug)
         elif options.func[0] == "delete":
             filename = ""
             if len(options.func) > 1:
                 filename = options.func[1]
-            delete_video(filename)
+            delete_video(filename, options.debug)
         elif options.func[0] == "download":
             source = ""
             destination = "."
@@ -241,8 +238,7 @@ def main(argv):
             else:
                 print("Usage: download source [destination]")
                 exit(-1)
-            print("Call download......")
-            download_video(source, destination)
+            download_video(source, destination, options.debug)
         elif options.func[0] == "info":
             print("info")
         elif options.func[0] == "start":
@@ -253,12 +249,12 @@ def main(argv):
             webbrowser.open(f"http://{IP}/www/html/controller.html")
         elif options.func[0] == "query":
             if len(options.func) > 1:
-                query(options.func[1])
+                query(options.func[1], options.debug)
         elif options.func[0] == "date":
             date = ""
             if len(options.func) > 1:
                 date = options.func[1]
-            set_date(date)
+            set_date(date, options.debug)
         else:
             print("unknown function")
             sys.exit(1)
