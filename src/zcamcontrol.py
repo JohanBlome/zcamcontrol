@@ -10,12 +10,13 @@ import os.path
 import pathlib
 import datetime
 import calendar
+import json
 
 FUNC_CHOICES = {
     "help": "show help options",
     "list": "list videos. Optional argument: folder",
     "delete": "delete video. Argument: filepath",
-    "download": "download video. Arguments: source [destination]",
+    "pull": "pull video, '-1' as source arg pulls last capture. Arguments: source [destination]",
     "info": "info",
     "start": "start recording",
     "stop": "stop recording",
@@ -106,7 +107,10 @@ def delete_video(filename, debug=0):
         run_query(filename, "?act=rm", debug=debug)
 
 
-def download_video(source, destination, debug=0):
+def pull_video(source, destination, debug=0):
+    if source == "-1":
+        # check latest file
+        source = query("last_file_name", debug=debug)
     if destination == ".":
         destination = os.path.basename(source)
     file = run_query(source, debug=debug)
@@ -132,8 +136,18 @@ def stop(debug=0):
 
 def query(key, debug=0):
     data = run_query("ctrl/get", f"?k={key}", debug=debug).json()
-    print(f"{data['value']}")
-    return
+    return data["value"]
+
+
+def get_info(debug=0):
+    data = run_query("/info", "", debug=debug).json()
+    if debug > 0:
+        print(f" {json.dumps(data, indent=2)}")
+    return data
+
+
+def print_info(info):
+    print(f" {json.dumps(info, indent=2)}")
 
 
 def set_date(date, debug=0):
@@ -228,7 +242,7 @@ def main(argv):
             if len(options.func) > 1:
                 filename = options.func[1]
             delete_video(filename, options.debug)
-        elif options.func[0] == "download":
+        elif options.func[0] == "pull":
             source = ""
             destination = "."
             if len(options.func) > 1:
@@ -236,11 +250,12 @@ def main(argv):
                 if len(options.func) > 2:
                     destination = options.func[2]
             else:
-                print("Usage: download source [destination]")
+                print("Usage: pull source [destination]")
                 exit(-1)
-            download_video(source, destination, options.debug)
+            pull_video(source, destination, options.debug)
         elif options.func[0] == "info":
-            print("info")
+            resp = get_info(debug=options.debug)
+            print_info(resp)
         elif options.func[0] == "start":
             start()
         elif options.func[0] == "stop":
@@ -249,7 +264,8 @@ def main(argv):
             webbrowser.open(f"http://{IP}/www/html/controller.html")
         elif options.func[0] == "query":
             if len(options.func) > 1:
-                query(options.func[1], options.debug)
+                result = query(options.func[1], options.debug)
+                print(result)
         elif options.func[0] == "date":
             date = ""
             if len(options.func) > 1:
