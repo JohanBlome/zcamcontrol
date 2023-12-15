@@ -234,6 +234,44 @@ def set_date(date, debug=0):
     run_query("datetime", f"?date={set_date}", debug=debug)
 
 
+def print_key_info(text):
+    # sort and print
+    if len(text) > 1:
+        # First areas
+        areas = (
+            KEYS.loc[KEYS["area"].str.contains(text, case=False)][["area"]]
+            .drop_duplicates()
+            .values[:, 0]
+        )
+        if len(areas) > 0:
+            print(f"Areas: {', '.join(areas)}\n\n")
+            for area in areas:
+                print(f"{area}:")
+                filt = KEYS[KEYS["area"] == area].sort_values(by=["key"])
+                if len(filt) > 0:
+                    for key in filt["key"]:
+                        single = filt[filt["key"] == key]
+                        if len(single.values) > 0:
+                            descr = single["description"].values[0]
+                            type = f"<{single['type'].values[0]}>"
+                            print(f"{key.ljust(20,' ')} {type.ljust(20,' ')} {descr}")
+                print("\n\n-------\n")
+        # individual fields
+        fields = KEYS.loc[KEYS["key"].str.contains(text, case=False)]
+        if len(fields) > 0:
+            print("Keys:\n")
+
+            fields = fields.sort_values(by=["key"])
+            for key in fields["key"]:
+                single = fields[fields["key"] == key]
+                if len(single.values) > 0:
+                    descr = single["description"].values[0]
+                    type = f"<{single['type'].values[0]}>"
+                    print(f"{key.ljust(20,' ')} {type.ljust(20,' ')} {descr}")
+
+            print("\n\n-------\n")
+
+
 def get_options(argv):
     parser = argparse.ArgumentParser(description=__doc__)
 
@@ -420,44 +458,13 @@ def main(argv):
             set_date(date, options.debug)
         elif options.func[0] == "keys":
             # special
-            if options.func[1] == "all_areas":
-                print(f"{KEYS['area'].unique()}")
-                return
-            # sort and print
-            if len(options.func) > 1:
-                text = options.func[1]
-                # First areas
-                areas = (
-                    KEYS.loc[KEYS["area"].str.contains(text, case=False)][["area"]]
-                    .drop_duplicates()
-                    .values[:, 0]
-                )
-                if len(areas) > 0:
-                    print(f"Areas: {areas}")
-                    for area in areas:
-                        print(
-                            KEYS[KEYS["area"] == area]
-                            .sort_values(by=["key"])
-                            .to_string(index=False)
-                        )
-                        print("\n\n-------\n")
-                # individual fields
-                fields = KEYS.loc[KEYS["key"].str.contains(text, case=False)]
-                if len(fields) > 0:
-                    print("Keys:")
-                    print(fields.sort_values(by=["key"]).to_string(index=False))
-            else:
-                # print all
-                unique_areas = KEYS["area"].unique()
-                for area in unique_areas:
-                    print(f"Area: {area}")
-                    print(
-                        KEYS[KEYS["area"] == area]
-                        .sort_values(by=["key"])
-                        .to_string(index=False)
-                    )
-                    print("\n\n-------\n")
-
+            searchstring = options.func[1]
+            if searchstring == "all_areas":
+                searchstring = ", ".join(KEYS["area"].unique())
+                print(searchstring)
+            split = searchstring.split(",")
+            for s in split:
+                print_key_info(s.strip())
         else:
             print("unknown function")
             sys.exit(1)
