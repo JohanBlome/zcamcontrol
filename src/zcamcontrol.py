@@ -27,6 +27,7 @@ FUNC_CHOICES = {
             Retrive a value from the camera. Partial match is allowed. An area can also be matched. 
             Multiple values can be retrieved by using a comma separated list.
             If the options '--csv filename' is set the output will be written to a csv file.
+            With no key all settings will be retrieved.
             Argument: key
             """,
     "set": """
@@ -37,7 +38,7 @@ FUNC_CHOICES = {
     "date": "date",
     "keys": """
             Search for keys. Partial match allowed. 
-            Special case is 'all_areas' which lists all areas (and not the actual keys).
+            If no keys are set all keys and areas will be listed.
             """,
 }
 default_values = {"debug": 0, "func": "help"}
@@ -152,7 +153,7 @@ def stop(debug=0):
     return
 
 
-def find_key(key, multi=False):
+def find_key(key, multi=False, multiwarn=True):
     # look for exct first
     lkey = KEYS.loc[KEYS["key"] == key]
     skey = None
@@ -165,9 +166,9 @@ def find_key(key, multi=False):
     ]
 
     if len(lkey) > 1:
-        if not QUIET:
+        if not QUIET and multiwarn:
             print(f"\nmultiple keys found for {key}\n")
-            print(lkey.sort_values(by=["key"]).to_string(index=False))
+            print_settings(lkey)
         if multi:
             skey = lkey["key"].values
         elif skey is None or len(skey) == 0:
@@ -177,12 +178,12 @@ def find_key(key, multi=False):
     return skey
 
 
-def get(key, multi=False, debug=0):
+def get(key, multi=False, debug=0, multiwarn=True):
     # allow for a comma separated list
     skey = []
     keys = key.split(",")
     for key in keys:
-        skey_ = find_key(key, multi=multi)
+        skey_ = find_key(key.strip(), multi=multi, multiwarn=multiwarn)
         if skey_ is not None:
             skey.extend(skey_)
     if skey is not None:
@@ -234,6 +235,15 @@ def set_date(date, debug=0):
     run_query("datetime", f"?date={set_date}", debug=debug)
 
 
+def print_settings(settings):
+    for key in settings["key"]:
+        single = settings[settings["key"] == key]
+        if len(single.values) > 0:
+            descr = single["description"].values[0]
+            type = f"<{single['type'].values[0]}>"
+            print(f"{key.ljust(20,' ')} {type.ljust(20,' ')} {descr}")
+
+
 def print_key_info(text):
     # sort and print
     if len(text) > 1:
@@ -249,12 +259,7 @@ def print_key_info(text):
                 print(f"{area}:")
                 filt = KEYS[KEYS["area"] == area].sort_values(by=["key"])
                 if len(filt) > 0:
-                    for key in filt["key"]:
-                        single = filt[filt["key"] == key]
-                        if len(single.values) > 0:
-                            descr = single["description"].values[0]
-                            type = f"<{single['type'].values[0]}>"
-                            print(f"{key.ljust(20,' ')} {type.ljust(20,' ')} {descr}")
+                    print_settings(filt)
                 print("\n\n-------\n")
         # individual fields
         fields = KEYS.loc[KEYS["key"].str.contains(text, case=False)]
@@ -262,12 +267,8 @@ def print_key_info(text):
             print("Keys:\n")
 
             fields = fields.sort_values(by=["key"])
-            for key in fields["key"]:
-                single = fields[fields["key"] == key]
-                if len(single.values) > 0:
-                    descr = single["description"].values[0]
-                    type = f"<{single['type'].values[0]}>"
-                    print(f"{key.ljust(20,' ')} {type.ljust(20,' ')} {descr}")
+            if len(fields):
+                print_settings(fields)
 
             print("\n\n-------\n")
 
@@ -434,6 +435,19 @@ def main(argv):
                         df.to_csv(options.csv, index=False)
                     for key in result:
                         print(f"{key}: {result[key]}")
+            else:
+                # get all settings
+                areas = ", ".join(KEYS["area"].unique())
+                result = get(areas, multi=True, multiwarn=False, debug=options.debug)
+                if result is not None:
+                    if len(options.csv) > 0:
+                        # transpose
+                        trans = [[key, result[key]] for key in result.keys()]
+                        df = pd.DataFrame.from_dict(trans, orient="columns")
+                        df.columns = ["key", "value"]
+                        df.to_csv(options.csv, index=False)
+                    for key in result:
+                        print(f"{key}: {result[key]}")
         elif options.func[0] == "set":
             if len(options.func) > 2:
                 key = options.func[1]
@@ -458,10 +472,12 @@ def main(argv):
             set_date(date, options.debug)
         elif options.func[0] == "keys":
             # special
-            searchstring = options.func[1]
-            if searchstring == "all_areas":
+            searchstring = ""
+            if len(options.func) < 2:
                 searchstring = ", ".join(KEYS["area"].unique())
                 print(searchstring)
+            else:
+                searchstring = options.func[1]
             split = searchstring.split(",")
             for s in split:
                 print_key_info(s.strip())
