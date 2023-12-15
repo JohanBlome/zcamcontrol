@@ -23,10 +23,22 @@ FUNC_CHOICES = {
     "start": "start recording",
     "stop": "stop recording",
     "preview": "preview",
-    "get": "get",
-    "set": "set",
+    "get": """
+            Retrive a value from the camera. Partial match is allowed. An area can also be matched. 
+            Multiple values can be retrieved by using a comma separated list.
+            If the options '--csv filename' is set the output will be written to a csv file.
+            Argument: key
+            """,
+    "set": """
+            Set a value. Partial match is allowed. An area can also be matched.
+            If the options '--csv filename' is set the values will be set according to the csv file.
+            Optional argument: key value
+            """,
     "date": "date",
-    "keys": "keys",
+    "keys": """
+            Search for keys. Partial match allowed. 
+            Special case is 'all_areas' which lists all areas (and not the actual keys).
+            """,
 }
 default_values = {"debug": 0, "func": "help"}
 
@@ -140,29 +152,48 @@ def stop(debug=0):
     return
 
 
-def find_key(key):
+def find_key(key, multi=False):
     # look for exct first
     lkey = KEYS.loc[KEYS["key"] == key]
     skey = None
     if len(lkey) > 0:
-        skey = lkey.values[0][0]
-    lkey = KEYS.loc[KEYS["key"].str.contains(key, case=False)]
+        # exact match
+        skey = [lkey.values[0][0]]
+    lkey = KEYS.loc[
+        (KEYS["key"].str.contains(key, case=False))
+        | (KEYS["area"].str.contains(key, case=False))
+    ]
+
     if len(lkey) > 1:
         if not QUIET:
             print(f"\nmultiple keys found for {key}\n")
             print(lkey.sort_values(by=["key"]).to_string(index=False))
-        if skey is None or len(skey) == 0:
+        if multi:
+            skey = lkey["key"].values
+        elif skey is None or len(skey) == 0:
             return None
         elif not QUIET:
             print(f'\nMatching "{skey}"')
     return skey
 
 
-def get(key, debug=0):
-    skey = find_key(key)
-    if skey != None:
-        data = run_query("ctrl/get", f"?k={skey}", debug=debug).json()
-        return data["value"]
+def get(key, multi=False, debug=0):
+    # allow for a comma separated list
+    skey = []
+    keys = key.split(",")
+    for key in keys:
+        skey_ = find_key(key, multi=multi)
+        if skey_ is not None:
+            skey.extend(skey_)
+    if skey is not None:
+        ret = {}
+        for k in skey:
+            data = run_query("ctrl/get", f"?k={k}", debug=debug).json()
+            if int(data["code"]) == 0:
+                ret[k] = data["value"]
+            else:
+                print(f"ERROR: {k} could not be retrieved")
+        return ret
     return None
 
 
@@ -233,6 +264,18 @@ def get_options(argv):
         "-q",
         "--quiet",
         action="store_true",
+    )
+    parser.add_argument(
+        "--csv",
+        type=str,
+        default="",
+        help="export/input settings from csv file",
+    )
+    parser.add_argument(
+        "-m",
+        "--multi",
+        action="store_true",
+        help="allow multiple keys to be retrieved if key match several",
     )
 
     # do the parsing
@@ -341,9 +384,18 @@ def main(argv):
             webbrowser.open(f"http://{IP}/www/html/controller.html")
         elif options.func[0] == "get":
             if len(options.func) > 1:
-                result = get(options.func[1], options.debug)
+                multi = len(options.csv) > 0 or options.multi
+
+                result = get(options.func[1], multi=multi, debug=options.debug)
                 if result is not None:
-                    print(result)
+                    if len(options.csv) > 0:
+                        # transpose
+                        trans = [[key, result[key]] for key in result.keys()]
+                        df = pd.DataFrame.from_dict(trans, orient="columns")
+                        df.columns = ["key", "value"]
+                        df.to_csv(options.csv, index=False)
+                    for key in result:
+                        print(f"{key}: {result[key]}")
         elif options.func[0] == "set":
             if len(options.func) > 2:
                 set(options.func[1], options.func[2], options.debug)
@@ -353,12 +405,22 @@ def main(argv):
                         print(f"Error setting {options.func[1]} to {options.func[2]}")
                 else:
                     print(f"Error setting {options.func[1]} to {options.func[2]}")
+            elif len(options.csv) > 0:
+                # update settings from csv file
+                df = pd.read_csv(options.csv)
+                for key in df["key"]:
+                    set(key, df[df["key"] == key]["value"].values[0], options.debug)
+
         elif options.func[0] == "date":
             date = ""
             if len(options.func) > 1:
                 date = options.func[1]
             set_date(date, options.debug)
         elif options.func[0] == "keys":
+            # special
+            if options.func[1] == "all_areas":
+                print(f"{KEYS['area'].unique()}")
+                return
             # sort and print
             if len(options.func) > 1:
                 text = options.func[1]
