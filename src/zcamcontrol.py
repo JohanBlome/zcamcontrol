@@ -11,6 +11,8 @@ import pathlib
 import datetime
 import calendar
 import json
+import re
+import pandas as pd
 
 FUNC_CHOICES = {
     "help": "show help options",
@@ -21,12 +23,16 @@ FUNC_CHOICES = {
     "start": "start recording",
     "stop": "stop recording",
     "preview": "preview",
-    "query": "query",
+    "get": "get",
+    "set": "set",
     "date": "date",
+    "keys": "keys",
 }
 default_values = {"debug": 0, "func": "help"}
 
 IP = None
+KEYS = None
+QUIET = False
 
 
 def is_file(filename):
@@ -134,9 +140,37 @@ def stop(debug=0):
     return
 
 
-def query(key, debug=0):
-    data = run_query("ctrl/get", f"?k={key}", debug=debug).json()
-    return data["value"]
+def find_key(key):
+    # look for exct first
+    lkey = KEYS.loc[KEYS["key"] == key]
+    skey = None
+    if len(lkey) > 0:
+        skey = lkey.values[0][0]
+    lkey = KEYS.loc[KEYS["key"].str.contains(key, case=False)]
+    if len(lkey) > 1:
+        if not QUIET:
+            print(f"\nmultiple keys found for {key}\n")
+            print(lkey.sort_values(by=["key"]).to_string(index=False))
+        if skey is None or len(skey) == 0:
+            return None
+        elif not QUIET:
+            print(f'\nMatching "{skey}"')
+    return skey
+
+
+def get(key, debug=0):
+    skey = find_key(key)
+    if skey != None:
+        data = run_query("ctrl/get", f"?k={skey}", debug=debug).json()
+        return data["value"]
+    return None
+
+
+def set(key, value, debug=0):
+    skey = find_key(key)
+    if skey != None:
+        run_query("ctrl/set", f"?{skey}={value}", debug=debug)
+    return
 
 
 def get_info(debug=0):
@@ -195,6 +229,11 @@ def get_options(argv):
         default=default_values["debug"],
         help="Increase verbosity (use multiple times for more)",
     )
+    parser.add_argument(
+        "-q",
+        "--quiet",
+        action="store_true",
+    )
 
     # do the parsing
     options = parser.parse_args(argv[1:])
@@ -211,6 +250,40 @@ def get_options(argv):
     return options
 
 
+def parse_keys(path):
+    syspath = sys.path[0]
+
+    # parse the keys
+    regex = r"^(?P<key>[\w]*)\s*(?P<type>[\w]*)\s*(?P<description>[\w\s\-\/]*)"
+
+    current_area = ""
+    keys = []
+    with open(f"{syspath}/{path}") as keyfile:
+        lines = keyfile.readlines()
+        for line in lines:
+            match = re.match(regex, line)
+            if match:
+                key = match.group("key").strip()
+                type = match.group("type").strip()
+                description = match.group("description").strip()
+
+                if type == "type":
+                    continue
+                elif len(type) == 0:
+                    current_area = key
+                else:
+                    keys.append(
+                        {
+                            "key": key,
+                            "type": type,
+                            "description": description,
+                            "area": current_area,
+                        }
+                    )
+
+    return pd.DataFrame(keys)
+
+
 def main(argv):
     """
     Calculate stats for videos based on parsing individual frames
@@ -224,8 +297,12 @@ def main(argv):
     if options.debug > 2:
         print(options)
 
-    global IP
+    global IP, KEYS, QUIET
     IP = options.ip
+    KEYS = parse_keys("query_keys.txt")
+
+    if options.quiet:
+        QUIET = True
     # do something
     try:
         if len(options.func) > 1 and options.func[1] == "help":
@@ -262,15 +339,61 @@ def main(argv):
             stop()
         elif options.func[0] == "preview":
             webbrowser.open(f"http://{IP}/www/html/controller.html")
-        elif options.func[0] == "query":
+        elif options.func[0] == "get":
             if len(options.func) > 1:
-                result = query(options.func[1], options.debug)
-                print(result)
+                result = get(options.func[1], options.debug)
+                if result is not None:
+                    print(result)
+        elif options.func[0] == "set":
+            if len(options.func) > 2:
+                set(options.func[1], options.func[2], options.debug)
+                result = get(options.func[1], options.debug)
+                if result is not None:
+                    if result != options.func[2]:
+                        print(f"Error setting {options.func[1]} to {options.func[2]}")
+                else:
+                    print(f"Error setting {options.func[1]} to {options.func[2]}")
         elif options.func[0] == "date":
             date = ""
             if len(options.func) > 1:
                 date = options.func[1]
             set_date(date, options.debug)
+        elif options.func[0] == "keys":
+            # sort and print
+            if len(options.func) > 1:
+                text = options.func[1]
+                # First areas
+                areas = (
+                    KEYS.loc[KEYS["area"].str.contains(text, case=False)][["area"]]
+                    .drop_duplicates()
+                    .values[:, 0]
+                )
+                if len(areas) > 0:
+                    print(f"Areas: {areas}")
+                    for area in areas:
+                        print(
+                            KEYS[KEYS["area"] == area]
+                            .sort_values(by=["key"])
+                            .to_string(index=False)
+                        )
+                        print("\n\n-------\n")
+                # individual fields
+                fields = KEYS.loc[KEYS["key"].str.contains(text, case=False)]
+                if len(fields) > 0:
+                    print("Keys:")
+                    print(fields.sort_values(by=["key"]).to_string(index=False))
+            else:
+                # print all
+                unique_areas = KEYS["area"].unique()
+                for area in unique_areas:
+                    print(f"Area: {area}")
+                    print(
+                        KEYS[KEYS["area"] == area]
+                        .sort_values(by=["key"])
+                        .to_string(index=False)
+                    )
+                    print("\n\n-------\n")
+
         else:
             print("unknown function")
             sys.exit(1)
