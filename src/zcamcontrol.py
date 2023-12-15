@@ -198,7 +198,7 @@ def get(key, multi=False, debug=0):
 
 
 def set(key, value, debug=0):
-    skey = find_key(key)
+    skey = find_key(key)[0]
     if skey != None:
         run_query("ctrl/set", f"?{skey}={value}", debug=debug)
     return
@@ -398,13 +398,15 @@ def main(argv):
                         print(f"{key}: {result[key]}")
         elif options.func[0] == "set":
             if len(options.func) > 2:
-                set(options.func[1], options.func[2], options.debug)
-                result = get(options.func[1], options.debug)
-                if result is not None:
-                    if result != options.func[2]:
-                        print(f"Error setting {options.func[1]} to {options.func[2]}")
+                key = options.func[1]
+                val = options.func[2]
+                set(key, val, options.debug)
+                result = get(key, options.debug)
+                if result[key] is not None:
+                    if result[key].strip("'") != val:
+                        print(f"Error setting {key} to {val}")
                 else:
-                    print(f"Error setting {options.func[1]} to {options.func[2]}")
+                    print(f"Error setting {key} to {val}")
             elif len(options.csv) > 0:
                 # update settings from csv file
                 df = pd.read_csv(options.csv)
