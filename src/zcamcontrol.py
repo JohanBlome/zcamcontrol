@@ -129,7 +129,7 @@ def delete_video(filename, debug=0):
 def pull_video(source, destination, debug=0):
     if source == "-1":
         # check latest file
-        source = query("last_file_name", debug=debug)
+        source = get("last_file_name")["last_file_name"]
     if destination == ".":
         destination = os.path.basename(source)
     file = run_query(source, debug=debug)
