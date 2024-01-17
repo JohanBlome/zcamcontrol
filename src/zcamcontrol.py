@@ -13,6 +13,7 @@ import calendar
 import json
 import re
 import pandas as pd
+import time
 
 FUNC_CHOICES = {
     "help": "show help options",
@@ -22,6 +23,7 @@ FUNC_CHOICES = {
     "info": "info",
     "start": "start recording",
     "stop": "stop recording",
+    "capture": "capture a specified time and pull the video",
     "preview": "preview",
     "get": """
             Retrive a value from the camera. Partial match is allowed. An area can also be matched. 
@@ -273,6 +275,37 @@ def print_key_info(text):
             print("\n\n-------\n")
 
 
+def parse_duration(duration):
+    if duration is None:
+        return None
+    if duration.isdigit():
+        return float(duration)
+    splt = duration.split(":")
+    if len(splt) == 2:
+        return float(splt[0]) * 60 + float(splt[1])
+    elif len(splt) == 3:
+        return float(splt[0]) * 3600 + float(splt[1]) * 60 + float(splt[2])
+    else:
+        return None
+
+
+def capture(filename, duration, debug=1):
+    if duration is None:
+        print("Duration is not correct, check setting")
+        return
+
+    if debug > 0:
+        print(f"Capture to {filename} for {duration}")
+    start(debug=debug)
+    time.sleep(duration)
+    stop(debug=debug)
+
+    if debug > 0:
+        print("Pull video")
+    pull_video("-1", filename, debug=debug)
+    return
+
+
 def get_options(argv):
     parser = argparse.ArgumentParser(description=__doc__)
 
@@ -289,6 +322,7 @@ def get_options(argv):
     parser.add_argument(
         "-ip",
         type=str,
+        default="",
         help="IP address of the camera",
     )
     parser.add_argument(
@@ -481,6 +515,26 @@ def main(argv):
             split = searchstring.split(",")
             for s in split:
                 print_key_info(s.strip())
+        elif options.func[0] == "capture":
+            duration = 30
+            now = datetime.datetime.now()
+            filename = f"{now.hour:0>2}.{now.minute:0>2}.{now.second:0>2}"
+            if len(options.func) > 1:
+                # H:M:S, M:S or sec (float)
+                duration_ = options.func[1]
+                duration = parse_duration(duration_)
+                if duration is None:
+                    # Capture 30 sec
+                    duration = 30
+            if len(options.func) == 3:
+                filename_ = options.func[2]
+                if "#time" in filename_:
+                    # Add a time
+                    filename_ = filename_.replace("#time", filename)
+                filename = filename_
+            else:
+                filename = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            capture(filename, duration, options.debug)
         else:
             print("unknown function")
             sys.exit(1)
