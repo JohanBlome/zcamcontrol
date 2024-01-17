@@ -48,6 +48,7 @@ default_values = {"debug": 0, "func": "help"}
 IP = None
 KEYS = None
 QUIET = False
+ZCAM_IP_ENVIRON = "ZCAM_IP"
 
 
 def is_file(filename):
@@ -420,6 +421,12 @@ def main(argv):
     if options.quiet:
         QUIET = True
     # do something
+    if len(IP) == 0:
+        IP = os.environ.get(ZCAM_IP_ENVIRON, "")
+        if len(IP) == 0:
+            print("No IP address given")
+            sys.exit(1)
+
     try:
         if len(options.func) > 1 and options.func[1] == "help":
             print(f"{FUNC_CHOICES[options.func[0]]}")
